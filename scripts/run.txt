@@ -1,0 +1,3 @@
+PYTHONPATH=. python3 -S script.py run without installed modules but use pythonpath
+PYTHONPATH=. python3 -I script.py run without installed modules and no python path
+tail -F /path/to/logfile.log
