@@ -69,7 +69,7 @@ class board_control():
             self.chess_window()                     #open a window to control and display a chess board
         else:                   #if this is a continuation window set up so that window will be correct when called
             self.gd = game_data()           #create the game_data object to hold game information    
-            self.setup_gd(anadata, s_move)   
+            self.setup_gd(anadata)   
             self.assist.set(1)              #set a default of assist on when continuing so that new move will calculate
             self.continue_window()
 
@@ -330,7 +330,9 @@ class board_control():
         self.chessw.after(300, self.continue_first)
         self.root.wait_window(self.chessw)
 
-    def setup_gd(self, anadata, s_move):    
+    def setup_gd(self, anadata):  
+        self.calc_score = []
+        self.calc_diff = [] 
         #smove number of halfmoves that have occurred with 1 as a base not 0
         #so move 1 white would be 1 move 1 black would be two 2 white would be 3
         for x in self.anadata.list_oflists:              #go through lists and get scores and differences for each move
@@ -347,9 +349,9 @@ class board_control():
         if self.calc_score[-1] == "":
             self.calc_score.pop()
         self.calc_score.append(0.0)    
-        self.calc_score.append(0.0)                     
-        self.gd.currentmove_set(s_move)
-        self.target_row = (s_move-1)//2        #integer division returns rounded down whole number halfmoves should be accurate now
+        self.calc_score.append(0.0)                    
+        self.gd.currentmove_set(self.s_move)
+        self.target_row = (self.s_move-1)//2        #integer division returns rounded down whole number halfmoves should be accurate now
         self.gd.white_p = anadata.lbldict["namew"]
         self.gd.black_p = anadata.lbldict["nameb"]
         squares = []     
@@ -620,8 +622,9 @@ class board_control():
         logging.info("Continu begin again pressed")
         self.chessw.destroy()
         self.gd = game_data()           #create the game_data object to hold game information    
-        self.setup_gd(self.anadata, self.s_move)  
+        self.setup_gd(self.anadata)  
         self.orig_continu = True 
+        self.assist.set(1)              #set a default of assist on when continuing so that new move will calculate
         self.continue_window()                
 
     def restart(self):
@@ -859,6 +862,7 @@ class board_control():
         self.show_next()        
         self.highlight_best(moves, scores)        
         self.assist_lbl['text'] = outstr 
+        print("scores ",self.calc_score)
         if self.contwin:            #if this is a continue window    
             if self.orig_continu:             #no scores to display if new moves  
                 outstr = "S " + str(self.calc_score[currmove])
