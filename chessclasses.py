@@ -19,7 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 ###############################################################################################
-#version 1.0.0
+#version 1.0.02
 
 from libs.fileexplore import file_is
 import libs.psutil as psutil
@@ -33,6 +33,7 @@ import time
 from datetime import datetime
 import libs.chess as chess
 import libs.chess.pgn
+from scripts.pgnd import pgn_game_delete
 from scripts.miscclasses import tkwoterm
 #from scripts.legalmove import legal_move
 from scripts.chessboard import board_control
@@ -52,11 +53,12 @@ class pgn_game_lister():
         self.game_selected = False
         self.pgn_closed = False
         self.g_s_totmoves = 0
-        self.game_offset_selected = 0
+        self.game_offset_selected = -1              #-1 is no offset selected
         self.agsfile = ""           #holder for ags file name selected
         self.pgnlist_items = []    #list to hold selected pgn headers
         self.pgn_error = False 
         self.pgnfile = ""
+        self.del_clicked = 0              #counter for right clicks to delete
         self.continue_open = False
         self.notname = False
         self.permpgnlist = []
@@ -233,7 +235,7 @@ class pgn_game_lister():
             self.agslist.append(add_list)            
             counter += 1
         self.permagslist = []
-        print("%^%^%^%^%^%^%^%^%^%^%%^%^%^%^%^%^%^%^%^%^%^%^%^")
+        #print("%^%^%^%^%^%^%^%^%^%^%%^%^%^%^%^%^%^%^%^%^%^%^%^")
         for item in self.agslist:
             self.permagslist.append(item)      #Make a permanent separate cloned copy of list read from file
         self.filter_sort()
@@ -299,8 +301,14 @@ class pgn_game_lister():
         self.root.update()          
         self.pgnlist = []
         self.ags_button.config(state=tk.NORMAL)     #AGS button to go back to showing ags games
+        self.readpgnfile()
+        
+    def readpgnfile(self):
+        self.tree.delete(*self.tree.get_children())  #clear tree since new pgn loading 
+        self.root.update() 
+        self.pgnlist = []  
         headers = ["Offset","Date","White","Elo","Black","Elo ","Result","Moves","Event","Site"]
-        self.pgnlist.append(headers)
+        self.pgnlist.append(headers)                  
         counter = 0
         #self.a_button.config(state=tk.DISABLED)        
         with open(self.pgnfile, "r")as pgn:  
@@ -419,7 +427,65 @@ class pgn_game_lister():
         for row_data in reader[1:]:
             self.tree.insert("", tk.END, values=row_data)
         #self.tree.selection_clear()             
-        self.tree.bind("<<TreeviewSelect>>", self.get_tree_item_selected)                       
+        self.tree.bind("<<TreeviewSelect>>", self.get_tree_item_selected)  
+        self.tree.bind("<Button-3>", self.right_click)                     
+
+    def right_click(self, event):
+        #if same row is right clicked twice then activate delete  count right clicks in  self.del_click
+        """action in event of button 3 on tree view right click"""
+        #get row already selected if their is one.  set to 10000 if none selected
+        row = 10000                     #arbitrary random number not likely to ever be clicked
+        if self.del_clicked > 0:        #right click has been done at leatst once
+            selected_id = self.tree.selection()[0]#get already selected row if there is one
+            row = selected_id
+        # select row under mouse
+        iid = self.tree.identify_row(event.y)
+        #print("iid ",iid," row ",row)
+        if iid:
+            # mouse pointer over item
+            self.tree.selection_set(iid)           
+            if self.del_clicked > 0:
+                if iid != row:
+                    self.del_clicked = 0            #reset right clicked as not equal              
+            self.del_clicked +=1        #increment self.del_clicked             
+        else:
+            # mouse pointer not over item
+            # occurs when items do not fill frame
+            self.del_clicked = 0
+        #print("del_clicked ",self.del_clicked)            
+        if self.del_clicked > 1:        #triggered after right click pressed a second time on selection
+            if self.ags_mode:           #if on ags screen then delete ags file
+                go_on = messagebox.askokcancel("Delete AGS file","Permanent, Are you sure you want to delete this AGS file?")
+                if go_on:                
+                    cwd = os.getcwd()
+                    path = cwd + "/saved/"        
+                    if not os.path.isdir(path):          #make sure directory path exists
+                        tempstr = path + " not found?"
+                        logging.error(tempstr)            
+                        return     #if directory doesn't exist return       
+                    self.agsfile = path + self.agsfile + ".ags"       #fill out filename from data                
+                    if os.path.isfile(self.agsfile):
+                        if os.path.exists(self.agsfile):
+                            try:
+                                os.remove(self.agsfile)      #remove original file
+                            except Exception as e:
+                                outstr = "Could not remove original file"
+                                logging.info(outstr)
+                                logging.info(e)
+                                print(outstr)
+                                print(e)
+                                return         
+                else:
+                    outstr = "Aborted deleting AGS file"
+                    logging.info(outstr)
+                    print (outstr)                
+                self.get_agsgames() 
+            else:                               #delete game in pgn
+                d_pgn = pgn_game_delete(self.pgnfile, self.game_offset_selected)
+                d_pgn = ""            
+                self.readpgnfile()             #reload the pgn file
+            self.del_clicked = 0        #reset self.del_clicked
+            return            
         
     def get_tree_item_selected(self,event):
         selected_ids = self.tree.selection()
@@ -460,6 +526,7 @@ class pgn_game_lister():
                 self.show_analysis()
         else:                           #in PGN mode so process pgn
             # to go to a game use it's offset   pgn.seek(offset)
+            #print("offset ",self.game_offset_selected)
             with open(self.pgnfile, "r")as pgn:
                 pgn.seek(self.game_offset_selected)
                 game = chess.pgn.read_game(pgn)
@@ -811,8 +878,7 @@ class pgn_game_lister():
          #   self.cb_button.config(state=tk.NORMAL)
         self.chessgame = ""        
         self.continue_open = False               
-        return
-      
+        return      
    
     def aclear_existing_grid(self):
         # Delete prior iterations before rebuilding structural headings rows
@@ -835,8 +901,7 @@ class pgn_game_lister():
         sfile = sfil + rslt + sp + self.anadata.lbldict["depth"] + sp + str(self.anadata.lbldict["moves"]) + ".ags"
         while os.path.isfile(sfile):   #change filename as it already exists
             left, sep, right = sfile.rpartition(".")
-            sfile = left + "_c" + sep + right        
-        
+            sfile = left + "_c" + sep + right                
         with open(sfile, "wb") as file:
             pickle.dump(self.anadata, file)       
 
@@ -852,16 +917,45 @@ class pgn_game_lister():
             return True     #file parsed ok                          
 
     def chess_board_open(self):
+        #print("no file", self.pgnfile, "  ", self.game_offset_selected) 
+        movelist = []
+        if not self.ags_mode:               #no pgn file if ags mode
+            if self.pgnfile[-3:] == "pgn":
+                if self.game_offset_selected != -1:
+                    # to go to a game use it's offset   pgn.seek(offset)
+                    with open(self.pgnfile, "r")as pgn:
+                        pgn.seek(self.game_offset_selected)
+                        game = chess.pgn.read_game(pgn)  
+                        initial_fen = game.board().fen()
+                        print("board",initial_fen)
+                        #get player names and put at the end of the move list so they can be popped off
+                        white = game.headers["White"]
+                        try:
+                            welo = game.headers["WhiteElo"]
+                            if welo:        #if welo is not none then add it to white name
+                                white = white + "(" + welo + ")"            
+                        except:
+                            pass
+                        black = game.headers["Black"]
+                        try:
+                            belo = game.headers["BlackElo"]
+                            if belo:        #if welo is not none then add it to white name
+                                black = black + "(" + belo + ")"            
+                        except:
+                            pass        
+                        for move in game.mainline_moves():
+                            movelist.append(str(move)) 
+                        movelist.append(white)
+                        movelist.append(black)  
+                        movelist.append(initial_fen)                                   
         self.cb_button.config(state=tk.DISABLED) 
-        self.pgn_closed = False
-        
+        self.pgn_closed = False        
         try:
             engine2 = bestmove(self.p)      #Istantiate bestmove class to start engine connection
         except ValueError as e:
             print(e)  # engine gave no uciok 
-            self.p.term(e)      #send to both            
-                  
-        self.chessgame = board_control(self.root, engine2)           #create object chessboard for play or pgn entry
+            self.p.term(e)      #send to both                              
+        self.chessgame = board_control(self.root, engine2, False, movelist)           #create object chessboard for play or pgn entry
         engine2.engine.terminate_engine()
         logging.info("PGN window closed")
         self.cb_button.config(state = tk.NORMAL)        
@@ -1227,6 +1321,7 @@ class bestmove():
             multipv = 3
         outstr = "multipv set to " + str(multipv)
         self.p.term(outstr)    
+        start = time.time()         
         mv_cont = []    #list for moves
         scores = []     #list of the scores for moves
         moves = []      #list of moves
@@ -1252,19 +1347,20 @@ class bestmove():
         self.engine.get()
         command = "go depth " + str(searchdepth)
         self.engine.put(command)
-        depth = 0     
-        start = time.time()          
+        depth = 0              
         calculating = True
         sanmove = ""
+        start3 = 0
         while calculating:
             stream = self.engine.comm.stdout.readline().strip()  #stdout.readline().strip()
             start2 = time.time()
             start3 = int(round(start2 - start, 2))            
             if start3 > timeout:            #if timeout has been reached then end now
-                calculating = False 
-                pstring = str(depth)  
-                pstring = pstring + " Timout was reached in getmoves"
-                logging.info(pstring)                
+                calculating = False  
+                pstring = " Timout was reached in getmoves at depth " + str(depth) 
+                logging.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!^^^^^!!!")
+                logging.info(pstring) 
+                self.p.term(pstring, "red")                               
             if "multipv" in stream:          
                 left, temp, conmoves = stream.rpartition(" pv ")   #separate at pv as move is to the right of it left will be further handled
                 smove, mid , temp = conmoves.partition(" ")     #first string is move   4 maybe 5 chars
@@ -1309,6 +1405,12 @@ class bestmove():
                     for i in range(len(scores)):
                         pstring = pstring + sanmoves[i] + "  " + str(scores[i])
                         self.p.term (pstring)
+        start2 = time.time()
+        start3 = int(round(start2 - start, 2))                         
+        pstring = "calculation took " + str(start3) + " seconds"
+        self.p.term(pstring)
+        logging.info("%*%*%*%*%*%*%*%*%*%*%*%*%*%*%*%")
+        logging.info(pstring)
         return moves, scores, sanmoves
         
 #end of bestmove class
