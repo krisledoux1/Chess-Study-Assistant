@@ -28,7 +28,7 @@ import os
 import csv
 
 ###############################################################################################
-#version 1.0.0
+#version 1.0.02
 
 from scripts.promo import promo
 import tkinter as tk
@@ -64,12 +64,17 @@ class board_control():
         self.l_m = legal_moves()         #instance of legalmoves class  
         self.opening = open_find("all.tsv")     #create a opening object with a searchable dictionary
         self.opening_name = "Chess Window"  #original setting of opening name as will be used as window title
-        if self.contwin == False:    
+        if self.contwin == False:           #called for pgn board
+            try:
+                initial_fen = self.anadata.pop()
+            except:
+                initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"          
+            self.gd = game_data(initial_fen)           #create the game_data object to hold game information          
             self.orig_continu = False            
             self.chess_window()                     #open a window to control and display a chess board
         else:                   #if this is a continuation window set up so that window will be correct when called
-            self.gd = game_data()           #create the game_data object to hold game information    
-            self.setup_gd(anadata)   
+            self.gd = game_data(self.anadata.fenlist[0])           #create the game_data object to hold game information    
+            self.setup_gd()   
             self.assist.set(1)              #set a default of assist on when continuing so that new move will calculate
             self.continue_window()
 
@@ -183,8 +188,9 @@ class board_control():
         self.chessw.bind("<Escape>", lambda event: self.on_close())         #close window
         self.chessw.bind("b", lambda event: self.restart())   #beginning       
         self.chessw.bind("r", lambda event: self.rotate())   #rotate display          
-        self.gd = game_data()           #create the game_data object to hold game information                        
-        self.cb = chessboard(canvas_frm, self.root, self, self.gd, self.l_m, colors)                           #create the canvas of the chess board        
+        #self.gd = game_data()           #create the game_data object to hold game information                        
+        self.cb = chessboard(canvas_frm, self.root, self, self.gd, self.l_m, colors)                           #create the canvas of the chess board    
+        self.chessw.after(300, self.setup_gd_board)         #setup chessboard if there is a movelistin anadata  
         self.chessw.protocol("WM_DELETE_WINDOW",  self.on_close)
         self.root.wait_window(self.chessw)
 
@@ -281,7 +287,7 @@ class board_control():
             master = score_frm,
             bg = bbgcolor,
             text = str("Scores"),
-            width = 6,
+            width = 5,
             font=("Arial", 12, "bold"),
             anchor='c'
         )  
@@ -290,7 +296,7 @@ class board_control():
             master = score_frm,
             bg = bbgcolor,
             text = str("Scoring"),
-            width = 35,
+            width = 36,
             font=("Arial", 12, "bold"),
             anchor='c'
         )  
@@ -330,7 +336,102 @@ class board_control():
         self.chessw.after(300, self.continue_first)
         self.root.wait_window(self.chessw)
 
-    def setup_gd(self, anadata):  
+    def setup_gd_board(self):       #board setup if board opend with pgn`
+    #setup movelist from anadata (anadata is only a movelist in this case with player names at end)
+    #setup fenlist and squares list from movelist by making all moves as new moves???
+        cols = ["none","a","b","c","d","e","f","g","h"]
+        try:
+            black = self.anadata.pop()          #remove player name from list and store it
+        except:
+            black = "nn"
+        self.gd.black_p_set(black)          #set game data player name
+        try:
+            white = self.anadata.pop()
+        except:
+            white = "nn"          
+        self.gd.white_p_set(white)
+        self.topname.set(black)
+        self.botname.set(white)            
+        for fullalg in self.anadata:
+            cmove = self.gd.currentmove_get()               
+            fromto = self.cb.get_move_squares(fullalg)  
+            spos = fromto[0]                                      
+            tpos = fromto[1]
+            self.cb.pname = self.gd.squares_get(cmove-1)[spos]          
+            upiece = self.cb.pname.upper()     #make piece uppercase for easier checking for king or rook
+            self.gd.promotion_false()   
+            w_m = self.gd.whosemove_get()                     
+            if len(fullalg)>4:              #only greater than 3 if there is a fourth place which would be for a promotion
+                #print("lenfull ",len(fullalg)," ",fullalg)
+                self.gd.promotion_true()            #set promotion to true
+                if w_m == "w":                          #make sure the promoted piece is uppercase if white moving
+                    prompiece = fullalg[4]
+                    fullalg = fullalg[:4] + prompiece.upper()
+                    #print("fulalgebra ",fullalg)
+            self.gd.passant_set("-")
+            passant = self.gd.passant_get()
+            castled = False         #was move a castle             
+            if len(fullalg) > 2:
+               #self.passant needs to be updated if white pawn moved to row 4 or black to row 5 as passant available
+                colletter = fullalg[0]
+                srow = int(fullalg[1])      #get original move start row which is second place of self.alg1 
+                row = int(fullalg[3])        #get moved to row      
+                if self.cb.pname == "p":
+                    if row == 5 and srow == 7: passant = colletter + "6"     #passant available on next move
+                if self.cb.pname == "P":                 
+                    if row == 4 and srow == 2: passant = colletter + "3"     #passant available on next move  
+                self.gd.passant_set(passant)                            
+            castled = False             #was move a castle
+            #print("whosemove ",w_m)
+            is_checked = self.l_m.check_tpos_forcheck(self.gd.squares_get(cmove-1), spos, tpos, w_m)
+            #is_checked = is_king_incheck(self.spos, self.tpos, self.csquares, w_m)
+            if is_checked:
+                self.gd.checked_true()
+                logging.info("King is checked")
+            if self.gd.castle_get() != "-":   #check if castling matters first and do nothing if no castling available  
+                scol = cols.index(fullalg[0])  #get original column by integer
+                numcolsmoved = abs(spos - tpos)       #used to determine if king moves more than one column meaning castle 
+                #upiece = pname.upper()     #make piece uppercase for easier checking for king or rook
+                if upiece == "K" and numcolsmoved > 1:               #piece moved was a king and more than 1                                        
+                    self.cb.do_castling()
+                    castled = True
+                if upiece == "K" or upiece == "R":      #if king or rook move affects castling
+                    self.cb.check_castling(scol)       #scol is the origination column number              
+            newsquares = self.cb.newsquares(self.gd.squares_get(cmove-1), fullalg, castled)    
+            #print("squares before move ", self.cb.csquares," newsquares ",newsquares)                                   
+            self.cb.update_bd(self.gd.squares_get(cmove-1), newsquares)
+            lfen = self.cb.squares_to_fenfront (newsquares)            
+            mn = self.gd.fenmove_get()      
+            outstr = "New move made. Fenmove is " + mn + fullalg      
+            w_m = self.gd.whosemove_get()
+            if w_m == "b":          #if black moved then increment movenum (fenmove)
+                self.gd.fenmove_increment()
+            self.gd.whosemove_toggle()      #set other side to move at next move for new FEN    
+            w_m = self.gd.whosemove_get()               
+            logging.info(outstr)                     
+            #add a halfmove to keep currentmove accurate 
+            self.gd.currentmove_increment()
+            sp = " " 
+            poc = str(self.gd.pawnorcapture_get())
+            mn = self.gd.fenmove_get()
+            castle = self.gd.castle_get()
+            passant = self.gd.passant_get()
+            self.cfen = lfen + w_m + sp + castle + sp + passant +  sp + poc + sp + mn 
+            #add new move to movelist    
+            self.gd.movelist_append(fullalg)
+            self.gd.totalmoves_set(len(self.gd.movelist)-1)     #-1 because move 0 is "init"      
+            self.gd.fenlist_append(self.cfen)  
+            self.gd.squares_append(newsquares)      
+            #update board control object that a new move was made
+            new_move = True
+            self.orig_continu = False
+            self.label_update(new_move)#True for forward direction
+        #print("tm ",self.gd.totalmoves_get())
+        #print("squares all ",self.gd.squares)
+            #outstr = "New Fen " + self.cfen     
+        self.restart()   
+
+    def setup_gd(self):     #setup for continuation window
         self.calc_score = []
         self.calc_diff = [] 
         #smove number of halfmoves that have occurred with 1 as a base not 0
@@ -352,16 +453,23 @@ class board_control():
         self.calc_score.append(0.0)                    
         self.gd.currentmove_set(self.s_move)
         self.target_row = (self.s_move-1)//2        #integer division returns rounded down whole number halfmoves should be accurate now
-        self.gd.white_p = anadata.lbldict["namew"]
-        self.gd.black_p = anadata.lbldict["nameb"]
+        self.gd.white_p = self.anadata.lbldict["namew"]
+        self.gd.black_p = self.anadata.lbldict["nameb"]
         squares = []     
-        #get lists from anadata (analyzed data object)
-        fens = anadata.getfens()
-        long_alg = anadata.getlongalg()
-        #sans = anadata.getsans()
-        b_moves = anadata.getbestmoves()
-        b_scores = anadata.getbestscores()
-        #put anadata lists into game data format
+        #get lists fromself.anadata (analyzed data object)
+        fens = self.anadata.getfens()
+        long_alg = self.anadata.getlongalg()
+        done = False
+        while not done:         #remove leading "" moves if pgn starts after move 1
+            x = long_alg[0]
+            if x == "":
+                long_alg.pop(0)
+            else:
+                done = True
+        #sans =self.anadata.getsans()
+        b_moves = self.anadata.getbestmoves()
+        b_scores = self.anadata.getbestscores()
+        #putself.anadata lists into game data format
         tot_moves = len(long_alg)
         self.gd.totalmoves_set(tot_moves)
         self.gd.fenlist.pop()           #get rid of initial fen in game data since continue starts with a fen of the continuation
@@ -525,6 +633,7 @@ class board_control():
 
     def on_close(self):
         self.board_closed = True           #variable to tell caller that pgn window is closed
+        self.gd = ""
         self.chessw.destroy()
 
     def rotate(self):
@@ -564,6 +673,8 @@ class board_control():
             node = game.add_variation(chess.Move.from_uci(self.gd.movelist_get(1)))
             x = 0
             for i in self.gd.movelist:
+                if len(i) > 4:                  #if a promotion
+                    i = i.lower()
                 if x > 1:
                     node = node.add_variation(chess.Move.from_uci(i))
                 x +=1
@@ -862,7 +973,7 @@ class board_control():
         self.show_next()        
         self.highlight_best(moves, scores)        
         self.assist_lbl['text'] = outstr 
-        print("scores ",self.calc_score)
+        #print("scores ",self.calc_score)
         if self.contwin:            #if this is a continue window    
             if self.orig_continu:             #no scores to display if new moves  
                 outstr = "S " + str(self.calc_score[currmove])
@@ -891,7 +1002,7 @@ class board_control():
         currmove = self.gd.currentmove_get() 
         fenstring = self.gd.fenlist_get(currmove-1)       #get the fen of the current position   
         #fenstring is fen 24 is depth 3 is multipv last is timeout in seconds  
-        moves, scores, _ = self.engine.getmoves(fenstring, 24, 3, 20)  
+        moves, scores, _ = self.engine.getmoves(fenstring, 24, 3, 25)  
         limit = 0         #limit list length to actual moves only keep moves, not "" as a move holder
         for i in moves:
             if i == "":
@@ -925,7 +1036,7 @@ class board_control():
         currmove = self.gd.currentmove_get()         
         nm_squares = self.gd.squares_get(currmove-1)     
         self.engine_assist_btn.config(state=tk.DISABLED)    
-        spl = "     "
+        spl = "    "
         self.assist_lbl['bg'] = "red"
         moves, scores = self.assistant()
         self.gd.bestmoves_pop(currmove-1)
@@ -1169,7 +1280,7 @@ class chessboard():
             for z in range(y,x):
                 self.display_cap.append(piece)     
         
-    def calc_capture_display(self, currsquares):      #calculate piece advantage to display in capture canvas `
+    def calc_capture_display(self, currsquares):      #calculate piece advantage to display in capture canvas 
         self.display_cap = []               #list that will be displayed      
         self.compare_cap(currsquares, "p")     #calc and add pawn advantage
         self.compare_cap(currsquares, "q")     #calc and add queen advantage          
@@ -1284,7 +1395,7 @@ class chessboard():
             self.canvas.addtag_withtag("highlight",hsquare)    
 
     def drawline(self, x0, y0, x1, y1):
-        self.line_1 = self.canvas.create_line(x0, y0, x1, y1, fill='white', width=3, arrow=tk.LAST)
+        self.line_1 = self.canvas.create_line(x0, y0, x1, y1, fill='magenta', width=3, arrow=tk.LAST, arrowshape='10 25 15')
 
     def center_ofsquare(self, square):
         y = int(square / 8)       #row from 0 to 7
@@ -1390,6 +1501,8 @@ class chessboard():
         if promotion:              #if move resulted in a promotion (tested in pdragstop)
             try:
                 piecemoved = lalg[4]     #there should be a fifth character if promotion 
+                if piecemoved == "=":
+                    piecemoved = lalg[5]
             except:
                 logging.error("There should be a fifth letter on a promotion, none was found")
         newsquares.pop(place2)
@@ -1979,6 +2092,12 @@ class game_data():
             
     def captured_get(self):
         return self.captured_pieces
+        
+    def white_p_set(self, name):
+        self.white_p = name
+
+    def black_p_set(self, name):
+        self.black_p = name
 
     def fen_to_squares(self, fen):    #set up squares list to represent chess board        
         squares = []     #squares 0 is ALWAYS black rook home position squares 63 is last white rook position  
