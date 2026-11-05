@@ -733,7 +733,7 @@ class board_control():
         logging.info("Continu begin again pressed")
         self.chessw.destroy()
         self.gd = game_data()           #create the game_data object to hold game information    
-        self.setup_gd(self.anadata)  
+        self.setup_gd()  
         self.orig_continu = True 
         self.assist.set(1)              #set a default of assist on when continuing so that new move will calculate
         self.continue_window()                
